@@ -37,35 +37,35 @@ jobs:
           # Sanitizer на Python: android resource name должен быть [a-z0-9_]+, не начинаться
           # с цифры и не иметь двойных/крайних подчёркиваний.
           python3 - <<'PYEOF'
-import re, glob, os
-from PIL import Image
+          import re, glob, os
+          from PIL import Image
 
-os.makedirs('app/src/main/res/drawable', exist_ok=True)
+          os.makedirs('app/src/main/res/drawable', exist_ok=True)
 
-def sanitize(name: str) -> str:
-    s = name.lower()
-    s = re.sub(r'[^a-z0-9]+', '_', s)
-    s = s.strip('_')
-    s = re.sub(r'_+', '_', s)
-    if not s:
-        s = 'icon'
-    if s[0].isdigit():
-        s = 'res_' + s
-    return s
+          def sanitize(name: str) -> str:
+              s = name.lower()
+              s = re.sub(r'[^a-z0-9]+', '_', s)
+              s = s.strip('_')
+              s = re.sub(r'_+', '_', s)
+              if not s:
+                  s = 'icon'
+              if s[0].isdigit():
+                  s = 'res_' + s
+              return s
 
-seen = {}
-for f in sorted(glob.glob('*.png') + glob.glob('*.PNG')):
-    base = os.path.basename(f)
-    name = os.path.splitext(base)[0]
-    safe_name = sanitize(name)
-    if safe_name in seen:
-        print(f"WARNING: '{f}' collides with '{seen[safe_name]}' as drawable name '{safe_name}', skipping duplicate")
-        continue
-    seen[safe_name] = f
-    dest = f'app/src/main/res/drawable/{safe_name}.png'
-    print(f"Copying icon: {f} -> {dest}")
-    Image.open(f).convert('RGBA').save(dest)
-PYEOF
+          seen = {}
+          for f in sorted(glob.glob('*.png') + glob.glob('*.PNG')):
+              base = os.path.basename(f)
+              name = os.path.splitext(base)[0]
+              safe_name = sanitize(name)
+              if safe_name in seen:
+                  print(f"WARNING: '{f}' collides with '{seen[safe_name]}' as drawable name '{safe_name}', skipping duplicate")
+                  continue
+              seen[safe_name] = f
+              dest = f'app/src/main/res/drawable/{safe_name}.png'
+              print(f"Copying icon: {f} -> {dest}")
+              Image.open(f).convert('RGBA').save(dest)
+          PYEOF
 
           echo "Icons in drawable:"
           ls -la app/src/main/res/drawable/
@@ -81,26 +81,26 @@ PYEOF
 
           if [ -n "$ICON_SRC" ]; then
             python3 -c "
-from PIL import Image
-img = Image.open('$ICON_SRC').convert('RGBA')
-sizes = {'app/src/main/res/mipmap-mdpi': 48, 'app/src/main/res/mipmap-hdpi': 72, 'app/src/main/res/mipmap-xhdpi': 96, 'app/src/main/res/mipmap-xxhdpi': 144, 'app/src/main/res/mipmap-xxxhdpi': 192}
-for folder, sz in sizes.items():
-    resized = img.resize((sz, sz), Image.LANCZOS)
-    resized.save(f'{folder}/ic_launcher.png')
-    resized.save(f'{folder}/ic_launcher_round.png')
-print('Launcher icons generated from', '$ICON_SRC')
-"
+          from PIL import Image
+          img = Image.open('$ICON_SRC').convert('RGBA')
+          sizes = {'app/src/main/res/mipmap-mdpi': 48, 'app/src/main/res/mipmap-hdpi': 72, 'app/src/main/res/mipmap-xhdpi': 96, 'app/src/main/res/mipmap-xxhdpi': 144, 'app/src/main/res/mipmap-xxxhdpi': 192}
+          for folder, sz in sizes.items():
+              resized = img.resize((sz, sz), Image.LANCZOS)
+              resized.save(f'{folder}/ic_launcher.png')
+              resized.save(f'{folder}/ic_launcher_round.png')
+          print('Launcher icons generated from', '$ICON_SRC')
+          "
           else
             echo "WARNING: no app_icon.png or coin.png found, generating placeholder launcher icon"
             python3 -c "
-from PIL import Image
-sizes = {'app/src/main/res/mipmap-mdpi': 48, 'app/src/main/res/mipmap-hdpi': 72, 'app/src/main/res/mipmap-xhdpi': 96, 'app/src/main/res/mipmap-xxhdpi': 144, 'app/src/main/res/mipmap-xxxhdpi': 192}
-for folder, sz in sizes.items():
-    img = Image.new('RGBA', (sz, sz), (60, 120, 200, 255))
-    img.save(f'{folder}/ic_launcher.png')
-    img.save(f'{folder}/ic_launcher_round.png')
-print('Placeholder launcher icons generated')
-"
+          from PIL import Image
+          sizes = {'app/src/main/res/mipmap-mdpi': 48, 'app/src/main/res/mipmap-hdpi': 72, 'app/src/main/res/mipmap-xhdpi': 96, 'app/src/main/res/mipmap-xxhdpi': 144, 'app/src/main/res/mipmap-xxxhdpi': 192}
+          for folder, sz in sizes.items():
+              img = Image.new('RGBA', (sz, sz), (60, 120, 200, 255))
+              img.save(f'{folder}/ic_launcher.png')
+              img.save(f'{folder}/ic_launcher_round.png')
+          print('Placeholder launcher icons generated')
+          "
           fi
 
       - name: Setup Gradle
