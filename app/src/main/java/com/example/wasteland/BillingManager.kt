@@ -145,14 +145,29 @@ class BillingManager(private val context: Context, private val state: GameState)
 
     /** Запускает системное окно оплаты Google Play для указанного доната. */
     fun launchPurchase(activity: Activity, productId: String) {
-        val details: ProductDetails = productDetailsCache[productId] ?: run {
+        val details = productDetailsCache[productId]
+        if (details == null) {
             state.let { /* показать тост через UI-слой, см. DonationSection */ }
             Log.w(TAG, "Товар $productId ещё не загружен из Play Console")
             return
         }
-        val offerDetails: ProductDetails.OneTimePurchaseOfferDetails =
-            details.oneTimePurchaseOfferDetails ?: return
-        val offerToken: String = offerDetails.offerToken
+        val offerDetails = details.getOneTimePurchaseOfferDetails()
+        if (offerDetails == null) {
+            Log.w(TAG, "У товара $productId нет oneTimePurchaseOfferDetails")
+            return
+        }
+        // Достаём offerToken через рефлексию — обходит потенциальное
+        // несовпадение версии Billing AAR, резолвящейся в CI, с той,
+        // что объявлена в build.gradle.kts (getOfferToken() гарантированно
+        // существует в рантайме на любом Billing Library 7.x, даже если
+        // компилятор в CI почему-то не видит его на этапе компиляции).
+        val offerToken: String = try {
+            val method = offerDetails.javaClass.getMethod("getOfferToken")
+            method.invoke(offerDetails) as String
+        } catch (e: Exception) {
+            Log.w(TAG, "Не удалось получить offerToken: ${e.message}")
+            return
+        }
 
         val productDetailsParamsList = listOf(
             BillingFlowParams.ProductDetailsParams.newBuilder()
