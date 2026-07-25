@@ -127,7 +127,7 @@ class BillingManager(private val context: Context, private val state: GameState)
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
                 productDetailsList.forEach { details: ProductDetails ->
                     productDetailsCache[details.productId] = details
-                    val price = details.oneTimePurchaseOfferDetails?.formattedPrice
+                    val price = details.getOneTimePurchaseOfferDetails()?.getFormattedPrice()
                     if (price != null) {
                         prices[details.productId] = price
                     }
@@ -149,7 +149,7 @@ class BillingManager(private val context: Context, private val state: GameState)
             Log.w(TAG, "Товар $productId ещё не загружен из Play Console")
             return
         }
-        val offerToken = details.oneTimePurchaseOfferDetails?.offerToken ?: return
+        val offerToken = details.getOneTimePurchaseOfferDetails()?.getOfferToken() ?: return
 
         val productDetailsParamsList = listOf(
             BillingFlowParams.ProductDetailsParams.newBuilder()
