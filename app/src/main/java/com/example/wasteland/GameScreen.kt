@@ -73,15 +73,15 @@ fun GameScreen() {
 
             Spacer(Modifier.height(16.dp))
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-            ) {
+            Box(modifier = Modifier.weight(1f)) {
                 when (tab) {
                     0 -> InventoryGrid(state)
-                    1 -> CraftList(state)
-                    2 -> ShopList(state)
+                    1 -> Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        CraftList(state)
+                    }
+                    2 -> Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        ShopList(state)
+                    }
                 }
             }
         }
