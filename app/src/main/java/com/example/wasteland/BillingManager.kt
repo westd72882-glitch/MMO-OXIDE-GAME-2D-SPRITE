@@ -127,7 +127,9 @@ class BillingManager(private val context: Context, private val state: GameState)
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
                 productDetailsList.forEach { details: ProductDetails ->
                     productDetailsCache[details.productId] = details
-                    val price = details.getOneTimePurchaseOfferDetails()?.getFormattedPrice()
+                    val offerDetails: ProductDetails.OneTimePurchaseOfferDetails? =
+                        details.oneTimePurchaseOfferDetails
+                    val price = offerDetails?.formattedPrice
                     if (price != null) {
                         prices[details.productId] = price
                     }
@@ -143,13 +145,14 @@ class BillingManager(private val context: Context, private val state: GameState)
 
     /** Запускает системное окно оплаты Google Play для указанного доната. */
     fun launchPurchase(activity: Activity, productId: String) {
-        val details = productDetailsCache[productId]
-        if (details == null) {
+        val details: ProductDetails = productDetailsCache[productId] ?: run {
             state.let { /* показать тост через UI-слой, см. DonationSection */ }
             Log.w(TAG, "Товар $productId ещё не загружен из Play Console")
             return
         }
-        val offerToken = details.getOneTimePurchaseOfferDetails()?.getOfferToken() ?: return
+        val offerDetails: ProductDetails.OneTimePurchaseOfferDetails =
+            details.oneTimePurchaseOfferDetails ?: return
+        val offerToken: String = offerDetails.offerToken
 
         val productDetailsParamsList = listOf(
             BillingFlowParams.ProductDetailsParams.newBuilder()
