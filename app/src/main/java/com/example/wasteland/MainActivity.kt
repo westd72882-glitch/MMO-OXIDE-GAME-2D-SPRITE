@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
 
@@ -22,29 +23,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Перехватываем любой краш и показываем текст ошибки на экране
-        // вместо мгновенного вылета в чёрный экран. Это временная диагностика.
+        // Пишем ЛЮБОЙ краш в файл на диске ДО попытки что-либо отрисовать.
+        // Так текст ошибки не потеряется, даже если UI не успеет обновиться
+        // перед тем как система убьёт процесс.
+        val crashFile = File(getExternalFilesDir(null), "crash_log.txt")
         Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
-            val sw = StringWriter()
-            throwable.printStackTrace(PrintWriter(sw))
-            val message = sw.toString()
-            runOnUiThread {
-                setContent {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black)
-                            .padding(16.dp)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Text(
-                            text = "КРАШ:\n\n$message",
-                            color = Color.Red,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
+            try {
+                val sw = StringWriter()
+                throwable.printStackTrace(PrintWriter(sw))
+                crashFile.writeText(sw.toString())
+            } catch (_: Throwable) {
+                // если даже запись в файл не удалась, ничего не поделать
             }
+            android.os.Process.killProcess(android.os.Process.myPid())
         }
 
         try {
@@ -57,6 +48,7 @@ class MainActivity : ComponentActivity() {
         } catch (t: Throwable) {
             val sw = StringWriter()
             t.printStackTrace(PrintWriter(sw))
+            crashFile.writeText(sw.toString())
             setContent {
                 Box(
                     modifier = Modifier
