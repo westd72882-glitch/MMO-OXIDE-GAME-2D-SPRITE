@@ -22,19 +22,24 @@ import java.io.StringWriter
 
 class MainActivity : ComponentActivity() {
     private var billingManagerRef: BillingManager? = null
+    private var gameStateRef: GameState? = null
+    private var gameSaveRef: GameSave? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Пишем ЛЮБОЙ краш в файл на диске ДО попытки что-либо отрисовать.
         // Так текст ошибки не потеряется, даже если UI не успеет обновиться
-        // перед тем как система убьёт процесс.
+        // перед тем как система убьёт процесс. Дополнительно пытаемся
+        // сохранить прогресс прямо в обработчике краша — чтобы аварийное
+        // закрытие не стоило игроку прогресса.
         val crashFile = File(getExternalFilesDir(null), "crash_log.txt")
         Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
             try {
                 val sw = StringWriter()
                 throwable.printStackTrace(PrintWriter(sw))
                 crashFile.writeText(sw.toString())
+                gameStateRef?.let { state -> gameSaveRef?.save(state) }
             } catch (_: Throwable) {
                 // если даже запись в файл не удалась, ничего не поделать
             }
@@ -45,7 +50,12 @@ class MainActivity : ComponentActivity() {
 
         try {
             enableEdgeToEdge()
+            val gameSave = GameSave(applicationContext)
             val gameState = GameState()
+            gameSave.load(gameState) // восстанавливаем прогресс + оффлайн-доход сразу при старте
+            gameStateRef = gameState
+            gameSaveRef = gameSave
+
             val billingManager = BillingManager(applicationContext, gameState)
             billingManager.connect()
             billingManagerRef = billingManager
@@ -53,7 +63,7 @@ class MainActivity : ComponentActivity() {
             setContent {
                 WastelandTheme {
                     CompositionLocalProvider(LocalBillingManager provides billingManager) {
-                        GameScreenWithState(gameState)
+                        GameScreenWithState(gameState, gameSave = gameSave)
                     }
                 }
             }
@@ -79,8 +89,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Сохраняем прогресс при каждом сворачивании/переключении приложения —
+    // это самый надёжный момент для сохранения на Android (гарантированно
+    // вызывается системой, в отличие от onDestroy, который может не успеть).
+    override fun onPause() {
+        super.onPause()
+        gameStateRef?.let { state -> gameSaveRef?.save(state) }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        gameStateRef?.let { state -> gameSaveRef?.save(state) }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        gameStateRef?.let { state -> gameSaveRef?.save(state) }
         billingManagerRef?.disconnect()
     }
 }

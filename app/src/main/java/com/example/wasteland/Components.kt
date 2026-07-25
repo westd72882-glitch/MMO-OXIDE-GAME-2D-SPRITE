@@ -60,11 +60,19 @@ fun CoinBadge(coins: Double, coinsPerSecond: Double = 0.0) {
     }
 }
 
+/**
+ * Форматирование монет. Раньше "else -> value.toInt()" обрезал дробную часть,
+ * из-за чего доход вида "0.8/сек" отображался как "0/сек" и казалось, что
+ * дохода нет вовсе. Теперь маленькие значения (< 1000) показываются с одним
+ * знаком после запятой, если есть дробная часть — доход виден полностью.
+ */
 fun formatCoins(value: Double): String {
     return when {
         value >= 1_000_000 -> "%.2fM".format(value / 1_000_000)
         value >= 1_000 -> "%.1fK".format(value / 1_000)
-        else -> "%,d".format(value.toInt()).replace(",", " ")
+        value > 0 && value < 1 -> "%.2f".format(value)
+        value == value.toInt().toDouble() -> "%,d".format(value.toInt()).replace(",", " ")
+        else -> "%.1f".format(value)
     }
 }
 
@@ -223,6 +231,7 @@ fun TabBar(selected: Int, onSelect: (Int) -> Unit) {
         TabItem("База", selected == 2, Modifier.weight(1f)) { onSelect(2) }
         TabItem("Магазин", selected == 3, Modifier.weight(1f)) { onSelect(3) }
         TabItem("Бой", selected == 4, Modifier.weight(1f)) { onSelect(4) }
+        TabItem("Настройки", selected == 5, Modifier.weight(1f)) { onSelect(5) }
     }
 }
 

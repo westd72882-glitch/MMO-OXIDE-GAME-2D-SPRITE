@@ -22,20 +22,41 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun GameScreen() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val gameSave = remember { GameSave(context) }
     val state = remember { GameState() }
-    GameScreenWithState(state)
+    var offlineReport by remember { mutableStateOf<OfflineReport?>(null) }
+
+    // Загружаем сохранение один раз при первом входе на экран.
+    LaunchedEffect(Unit) {
+        offlineReport = gameSave.load(state)
+    }
+
+    GameScreenWithState(state, gameSave = gameSave, offlineReport = offlineReport, onDismissOfflineReport = { offlineReport = null })
 }
 
 @Composable
-fun GameScreenWithState(state: GameState) {
-    var tab by remember { mutableStateOf(0) } // 0 инвентарь, 1 крафт, 2 база, 3 магазин, 4 бой
+fun GameScreenWithState(
+    state: GameState,
+    gameSave: GameSave? = null,
+    offlineReport: OfflineReport? = null,
+    onDismissOfflineReport: () -> Unit = {}
+) {
+    var tab by remember { mutableStateOf(0) } // 0 инвентарь, 1 крафт, 2 база, 3 магазин, 4 бой, 5 настройки
 
-    GameLoop(state)
+    GameLoop(state, gameSave)
 
     LaunchedEffect(state.toast) {
         if (state.toast != null) {
             delay(1800)
             state.clearToast()
+        }
+    }
+
+    LaunchedEffect(offlineReport) {
+        if (offlineReport != null) {
+            delay(4500)
+            onDismissOfflineReport()
         }
     }
 
@@ -55,10 +76,10 @@ fun GameScreenWithState(state: GameState) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column {
-                    Text("WASTELAND", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+                    Text("OXIDE STATA", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
                     Text("SURVIVAL OUTPOST", color = TextMuted, fontSize = 10.sp, letterSpacing = 2.sp)
                 }
-                CoinBadge(coins = state.coins, coinsPerSecond = state.totalCoinsPerSecond() * state.incomeBoostMultiplier)
+                CoinBadge(coins = state.coins, coinsPerSecond = state.effectiveCoinsPerSecond())
             }
 
             Spacer(Modifier.height(10.dp))
@@ -95,15 +116,48 @@ fun GameScreenWithState(state: GameState) {
                 when (tab) {
                     0 -> InventoryGrid(state)
                     1 -> Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        UpgradeList(state)
+                        UpgradeList(state, gameSave)
                     }
                     2 -> Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        BuildingList(state)
+                        BuildingList(state, gameSave)
                     }
                     3 -> Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        ShopList(state)
+                        ShopList(state, gameSave)
                     }
                     4 -> CombatScreen(state)
+                    5 -> SettingsScreen(
+                        state = state,
+                        onSettingsChanged = { newSettings ->
+                            state.updateSettings(newSettings)
+                            gameSave?.save(state)
+                        },
+                        onResetProgress = {
+                            gameSave?.wipe()
+                            state.updateSettings(GameSettings())
+                        }
+                    )
+                }
+            }
+        }
+
+        offlineReport?.let { report ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(PanelDarker)
+                    .border(1.dp, ResourceGreen.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                    .clickable { onDismissOfflineReport() }
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("С возвращением!", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        "Пока вас не было (${formatOfflineDuration(report.elapsedSeconds)}): +${formatCoins(report.earnedCoins)} монет",
+                        color = ResourceGreen,
+                        fontSize = 11.sp
+                    )
                 }
             }
         }
@@ -123,8 +177,21 @@ fun GameScreenWithState(state: GameState) {
     }
 }
 
+private fun formatOfflineDuration(seconds: Double): String {
+    val totalMinutes = (seconds / 60).toInt()
+    return when {
+        totalMinutes < 1 -> "меньше минуты"
+        totalMinutes < 60 -> "$totalMinutes мин"
+        else -> {
+            val hours = totalMinutes / 60
+            val mins = totalMinutes % 60
+            if (mins == 0) "$hours ч" else "$hours ч $mins мин"
+        }
+    }
+}
+
 @Composable
-private fun UpgradeList(state: GameState) {
+private fun UpgradeList(state: GameState, gameSave: GameSave? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("КРАФТ УЛУЧШЕНИЙ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 2.dp))
         Text(
@@ -155,7 +222,10 @@ private fun UpgradeList(state: GameState) {
                 buttonLabel = if (done) "Готово" else "Собрать",
                 buttonEnabled = !done && affordable,
                 buttonActiveColor = if (done) BorderMuted else AccentRust,
-                onClick = { state.buyUpgrade(item) },
+                onClick = {
+                    state.buyUpgrade(item)
+                    gameSave?.save(state)
+                },
                 highlighted = done
             )
         }
@@ -163,11 +233,11 @@ private fun UpgradeList(state: GameState) {
 }
 
 @Composable
-private fun BuildingList(state: GameState) {
+private fun BuildingList(state: GameState, gameSave: GameSave? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("ПОСТРОЙКИ БАЗЫ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 2.dp))
         Text(
-            "Постройки приносят монеты автоматически, каждую секунду. Улучшайте их для роста дохода.",
+            "Стройте и улучшайте базу — каждое здание приносит монеты автоматически, каждую секунду, даже пока вы не в игре.",
             color = TextSecondary,
             fontSize = 11.sp,
             modifier = Modifier.padding(bottom = 4.dp)
@@ -195,7 +265,10 @@ private fun BuildingList(state: GameState) {
                 buttonLabel = if (maxed) "Макс" else if (level == 0) "Построить" else "Улучшить",
                 buttonEnabled = !maxed && affordable,
                 buttonActiveColor = AccentRust,
-                onClick = { state.upgradeBuilding(building) },
+                onClick = {
+                    state.upgradeBuilding(building)
+                    gameSave?.save(state)
+                },
                 highlighted = false
             )
         }
@@ -203,7 +276,7 @@ private fun BuildingList(state: GameState) {
 }
 
 @Composable
-private fun ShopList(state: GameState) {
+private fun ShopList(state: GameState, gameSave: GameSave? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("РЕСУРСЫ ЗА МОНЕТЫ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
         SHOP_RESOURCE_OFFERS.forEach { offer ->
@@ -221,7 +294,7 @@ private fun ShopList(state: GameState) {
                 buttonLabel = if (affordable) "Купить" else "Мало монет",
                 buttonEnabled = affordable,
                 buttonActiveColor = AccentRust,
-                onClick = { state.buyResource(offer) },
+                onClick = { state.buyResource(offer); gameSave?.save(state) },
                 highlighted = false
             )
         }
@@ -243,7 +316,7 @@ private fun ShopList(state: GameState) {
                 buttonLabel = if (affordable) "Купить" else "Мало монет",
                 buttonEnabled = affordable,
                 buttonActiveColor = AccentRust,
-                onClick = { state.buyWeapon(item) },
+                onClick = { state.buyWeapon(item); gameSave?.save(state) },
                 highlighted = false
             )
         }
@@ -265,7 +338,7 @@ private fun ShopList(state: GameState) {
                 buttonLabel = if (affordable) "Купить" else "Мало монет",
                 buttonEnabled = affordable,
                 buttonActiveColor = AccentRust,
-                onClick = { state.buyArmor(item) },
+                onClick = { state.buyArmor(item); gameSave?.save(state) },
                 highlighted = false
             )
         }
@@ -287,7 +360,7 @@ private fun ShopList(state: GameState) {
                 buttonLabel = if (affordable) "Купить" else "Мало монет",
                 buttonEnabled = affordable,
                 buttonActiveColor = AccentRust,
-                onClick = { state.buyConsumable(item) },
+                onClick = { state.buyConsumable(item); gameSave?.save(state) },
                 highlighted = false
             )
         }

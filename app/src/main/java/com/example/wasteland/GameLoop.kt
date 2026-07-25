@@ -20,21 +20,51 @@ import androidx.compose.runtime.LaunchedEffect
  * или кадр был пропущен из-за нагрузки.
  */
 @Composable
-fun GameLoop(state: GameState) {
-    LaunchedEffect(Unit) {
-        var lastFrameNanos = -1L
-        while (true) {
-            val frameNanos = withFrameNanosCompat()
-            if (lastFrameNanos >= 0) {
-                val dtSeconds = (frameNanos - lastFrameNanos) / 1_000_000_000.0
-                // Защита от аномально большого dt (например, приложение
-                // было свёрнуто и возобновлено) — не начисляем доход "за офлайн"
-                // одним огромным скачком, чтобы не выглядело как баг/дюп.
-                val clampedDt = dtSeconds.coerceIn(0.0, 0.25)
-                state.tickIncome(clampedDt)
-                state.tickBoost(clampedDt)
+fun GameLoop(state: GameState, gameSave: GameSave? = null) {
+    // Режим низкой нагрузки (настройки -> Производительность): тикаем логику
+    // не на каждый VSync-кадр, а с фиксированным шагом ~10 раз/сек. Экрану
+    // это не мешает (сама отрисовка Compose всё равно идёт с системной
+    // частотой), а вот количество recomposition, вызванных изменением
+    // состояния (coins, buildingLevels и т.п.), падает в разы — на слабых
+    // устройствах это и была основная причина низкого FPS.
+    val lowPerf = state.settings.lowPerformanceMode
+
+    LaunchedEffect(lowPerf) {
+        if (lowPerf) {
+            val stepMs = 100L
+            val stepSeconds = stepMs / 1000.0
+            while (true) {
+                kotlinx.coroutines.delay(stepMs)
+                state.tickIncome(stepSeconds)
+                state.tickBoost(stepSeconds)
             }
-            lastFrameNanos = frameNanos
+        } else {
+            var lastFrameNanos = -1L
+            while (true) {
+                val frameNanos = withFrameNanosCompat()
+                if (lastFrameNanos >= 0) {
+                    val dtSeconds = (frameNanos - lastFrameNanos) / 1_000_000_000.0
+                    // Защита от аномально большого dt (например, приложение
+                    // было свёрнуто и возобновлено) — не начисляем доход одним
+                    // огромным скачком в этом цикле; оффлайн-доход считается
+                    // отдельно и честно в GameSave.load при следующем запуске.
+                    val clampedDt = dtSeconds.coerceIn(0.0, 0.25)
+                    state.tickIncome(clampedDt)
+                    state.tickBoost(clampedDt)
+                }
+                lastFrameNanos = frameNanos
+            }
+        }
+    }
+
+    // Автосохранение раз в 5 секунд, пока экран игры открыт — так прогресс
+    // (монеты, здания, инвентарь) не теряется даже без явного закрытия игры.
+    if (gameSave != null) {
+        LaunchedEffect(Unit) {
+            while (true) {
+                kotlinx.coroutines.delay(5000)
+                gameSave.save(state)
+            }
         }
     }
 }

@@ -32,6 +32,79 @@ class GameState {
         coins = exactCoins
     }
 
+    /** Начисление за оффлайн-время (см. GameSave.load). */
+    fun grantOfflineCoins(amount: Double) {
+        addCoinsImmediate(amount)
+    }
+
+    /**
+     * Кэш дохода монет/сек — пересчитывается только при изменении зданий/апгрейдов,
+     * а не каждый кадр. Раньше totalCoinsPerSecond() пересчитывался в composable
+     * CoinBadge на каждой перерисовке, из-за чего доход в шапке иногда мелькал
+     * неполным/устаревшим. Теперь это поле — единственный источник истины:
+     * им же тикает начисление, им же отображается шапка.
+     */
+    var coinsPerSecond by mutableDoubleStateOf(0.0)
+        private set
+
+    private fun recalcIncome() {
+        val fromBuildings = BUILDINGS.sumOf { b -> b.incomeAtLevel(buildingLevel(b.id)) }
+        val fromUpgrades = UPGRADE_ITEMS
+            .filter { ownedUpgrades[it.id] == true }
+            .sumOf { it.coinsPerSecondBonus }
+        coinsPerSecond = fromBuildings + fromUpgrades
+    }
+
+    // --- Настройки (звук/музыка/вибро/производительность) — сохраняются вместе с прогрессом ---
+    var settings by mutableStateOf(GameSettings())
+        private set
+
+    fun updateSettings(newSettings: GameSettings) {
+        settings = newSettings
+    }
+
+    fun setSettingsFromSave(saved: GameSettings) {
+        settings = saved
+    }
+
+    // --- Восстановление состояния из сохранения (см. GameSave.load) ---
+    fun setCoinsFromSave(value: Double) {
+        exactCoins = value
+        coins = value
+    }
+
+    fun setPlayerHpFromSave(value: Int) {
+        playerHp = value.coerceIn(0, maxPlayerHp)
+    }
+
+    fun setRadiationFromSave(value: Int) {
+        radiation = value.coerceIn(0, 100)
+    }
+
+    fun setEquippedFromSave(weaponId: String?, armorId: String?) {
+        equippedWeaponId = weaponId
+        equippedArmorId = armorId
+    }
+
+    fun setResourceFromSave(type: ResourceType, amount: Int) {
+        resources[type] = amount
+    }
+
+    fun setBuildingLevelFromSave(id: String, level: Int) {
+        buildingLevels[id] = level
+        recalcIncome()
+    }
+
+    fun setUpgradeOwnedFromSave(id: String) {
+        ownedUpgrades[id] = true
+        recalcIncome()
+    }
+
+    fun setInventoryFromSave(slots: List<InventorySlot>) {
+        inventory.clear()
+        inventory.addAll(slots)
+    }
+
     val resources = mutableStateMapOf<ResourceType, Int>().apply {
         putAll(startingResources())
     }
@@ -57,6 +130,7 @@ class GameState {
         }
         spendCoins(cost.toDouble())
         buildingLevels[building.id] = level + 1
+        recalcIncome()
         showToast("${building.displayName}: уровень ${level + 1}")
     }
 
@@ -77,18 +151,13 @@ class GameState {
             removeFromInventory(type.name, need)
         }
         ownedUpgrades[upgrade.id] = true
+        recalcIncome()
         addToInventory(upgrade.id, upgrade.displayName, upgrade.iconRes, 1, isResource = false)
         showToast("Собрано: ${upgrade.displayName}")
     }
 
-    /** Суммарный доход монет/сек от всех зданий и апгрейдов. */
-    fun totalCoinsPerSecond(): Double {
-        val fromBuildings = BUILDINGS.sumOf { b -> b.incomeAtLevel(buildingLevel(b.id)) }
-        val fromUpgrades = UPGRADE_ITEMS
-            .filter { ownedUpgrades[it.id] == true }
-            .sumOf { it.coinsPerSecondBonus }
-        return fromBuildings + fromUpgrades
-    }
+    /** Суммарный доход монет/сек от всех зданий и апгрейдов (из кэша — см. recalcIncome). */
+    fun totalCoinsPerSecond(): Double = coinsPerSecond
 
     fun totalCombatDamageBonus(): Int =
         UPGRADE_ITEMS.filter { ownedUpgrades[it.id] == true }.sumOf { it.combatDamageBonus }
@@ -103,8 +172,11 @@ class GameState {
      * оптимизация против лишних recomposition 60 раз/сек.
      */
     fun tickIncome(dtSeconds: Double) {
-        val income = totalCoinsPerSecond() * incomeBoostMultiplier * dtSeconds
-        if (income > 0) exactCoins += income
+        val income = effectiveCoinsPerSecond() * dtSeconds
+        // Раньше был "if (income > 0)" — из-за double-округления при очень
+        // маленьком доходе строка иногда пропускалась, и казалось, что доход
+        // "не всегда есть". Начисляем всегда, даже дробные копейки накапливаются.
+        exactCoins += income
 
         uiSyncAccumulator += dtSeconds
         if (uiSyncAccumulator >= uiSyncIntervalSeconds) {
@@ -112,6 +184,9 @@ class GameState {
             coins = exactCoins
         }
     }
+
+    /** Доход монет/сек с учётом активного буста — то самое значение, которое должно показываться в UI. */
+    fun effectiveCoinsPerSecond(): Double = coinsPerSecond * incomeBoostMultiplier
 
     // --- Покупка готовых предметов за монеты ---
     fun buyResource(offer: ShopOffer) {
