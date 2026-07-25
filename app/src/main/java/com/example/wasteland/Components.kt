@@ -31,7 +31,7 @@ fun GameIcon(iconRes: String, size: Dp) {
 }
 
 @Composable
-fun CoinBadge(coins: Int) {
+fun CoinBadge(coins: Double, coinsPerSecond: Double = 0.0) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -42,12 +42,55 @@ fun CoinBadge(coins: Int) {
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         GameIcon(COIN_ICON_RES, 20.dp)
-        Text(
-            text = "%,d".format(coins).replace(",", " "),
-            color = TextPrimary,
-            fontWeight = FontWeight.Bold,
-            fontSize = 16.sp
-        )
+        Column {
+            Text(
+                text = formatCoins(coins),
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+            if (coinsPerSecond > 0) {
+                Text(
+                    text = "+${formatCoins(coinsPerSecond)}/сек",
+                    color = ResourceGreen,
+                    fontSize = 10.sp
+                )
+            }
+        }
+    }
+}
+
+fun formatCoins(value: Double): String {
+    return when {
+        value >= 1_000_000 -> "%.2fM".format(value / 1_000_000)
+        value >= 1_000 -> "%.1fK".format(value / 1_000)
+        else -> "%,d".format(value.toInt()).replace(",", " ")
+    }
+}
+
+@Composable
+fun HpBar(current: Int, max: Int, label: String, color: Color) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text(label, color = TextSecondary, fontSize = 10.sp)
+            Text("$current / $max", color = TextSecondary, fontSize = 10.sp)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(PanelDarker)
+        ) {
+            val fraction = if (max > 0) (current.toFloat() / max.toFloat()).coerceIn(0f, 1f) else 0f
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(fraction)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(color)
+            )
+        }
     }
 }
 
@@ -78,6 +121,95 @@ fun ResourceCard(type: ResourceType, amount: Int) {
     }
 }
 
+/**
+ * Секция доната в магазине. Показывает реальные цены из Google Play
+ * (после того как товары загружены — см. BillingManager.queryProductDetails),
+ * и запускает системное окно оплаты Google Play при нажатии.
+ *
+ * Пока приложение не опубликовано в Play Console с настроенными товарами,
+ * цены будут отображаться как "—" и кнопка покажет предупреждение —
+ * это ожидаемое поведение, см. комментарий в начале BillingManager.kt.
+ */
+@Composable
+fun DonationSection(state: GameState) {
+    val billing = LocalBillingManager.current
+    val context = LocalContext.current
+    val activity = context as? android.app.Activity
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("ПОДДЕРЖАТЬ ИГРУ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
+        Text(
+            "Донат ускоряет прогресс (монеты + временный буст дохода x2), но не даёт эксклюзивного контента.",
+            color = TextSecondary,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+
+        DONATION_PRODUCTS.forEach { product ->
+            val price = billing?.prices?.get(product.productId)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(PanelDark)
+                    .border(1.dp, Color(0xFF4A3F2C), RoundedCornerShape(10.dp))
+                    .padding(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(PanelDarker),
+                    contentAlignment = Alignment.Center
+                ) {
+                    GameIcon(donationIconFor(product.productId), 26.dp)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(donationLabelFor(product.productId), color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(
+                        "+${product.coinReward} монет" + if (product.boostSeconds > 0) " · буст x2 на ${(product.boostSeconds / 60).toInt()} мин" else "",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(AccentRust)
+                        .clickable(enabled = activity != null) {
+                            if (billing != null && activity != null) {
+                                billing.launchPurchase(activity, product.productId)
+                            }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = price ?: "…",
+                        color = BgDark,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun donationLabelFor(productId: String): String = when (productId) {
+    "donation_small" -> "Мешочек монет"
+    "donation_medium" -> "Сундучок"
+    "donation_large" -> "Большой сундук"
+    "donation_mega" -> "Мега-сундук"
+    else -> "Донат"
+}
+
+private fun donationIconFor(productId: String): String = when (productId) {
+    "donation_small" -> "coins_2"
+    "donation_medium" -> "coins_3"
+    "donation_large" -> "coins_4"
+    "donation_mega" -> "coins_4"
+    else -> COIN_ICON_RES
+}
+
 @Composable
 fun TabBar(selected: Int, onSelect: (Int) -> Unit) {
     Row(
@@ -87,8 +219,10 @@ fun TabBar(selected: Int, onSelect: (Int) -> Unit) {
             .border(1.dp, BorderMuted, RoundedCornerShape(8.dp))
     ) {
         TabItem("Инвентарь", selected == 0, Modifier.weight(1f)) { onSelect(0) }
-        TabItem("Ресурсы", selected == 1, Modifier.weight(1f)) { onSelect(1) }
-        TabItem("Магазин", selected == 2, Modifier.weight(1f)) { onSelect(2) }
+        TabItem("Крафт", selected == 1, Modifier.weight(1f)) { onSelect(1) }
+        TabItem("База", selected == 2, Modifier.weight(1f)) { onSelect(2) }
+        TabItem("Магазин", selected == 3, Modifier.weight(1f)) { onSelect(3) }
+        TabItem("Бой", selected == 4, Modifier.weight(1f)) { onSelect(4) }
     }
 }
 
@@ -99,13 +233,14 @@ private fun TabItem(label: String, active: Boolean, modifier: Modifier, onClick:
         modifier = modifier
             .background(if (active) AccentRust else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp)
+            .padding(horizontal = 2.dp, vertical = 12.dp)
     ) {
         Text(
             text = label,
             color = if (active) BgDark else TextSecondary,
             fontWeight = FontWeight.Bold,
-            fontSize = 12.sp
+            fontSize = 10.sp,
+            maxLines = 1
         )
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -20,6 +21,8 @@ import java.io.PrintWriter
 import java.io.StringWriter
 
 class MainActivity : ComponentActivity() {
+    private var billingManagerRef: BillingManager? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -35,14 +38,23 @@ class MainActivity : ComponentActivity() {
             } catch (_: Throwable) {
                 // если даже запись в файл не удалась, ничего не поделать
             }
+            // передаём дальше системному обработчику, чтобы приложение
+            // закрылось штатно (иначе может зависнуть)
             android.os.Process.killProcess(android.os.Process.myPid())
         }
 
         try {
             enableEdgeToEdge()
+            val gameState = GameState()
+            val billingManager = BillingManager(applicationContext, gameState)
+            billingManager.connect()
+            billingManagerRef = billingManager
+
             setContent {
                 WastelandTheme {
-                    GameScreen()
+                    CompositionLocalProvider(LocalBillingManager provides billingManager) {
+                        GameScreenWithState(gameState)
+                    }
                 }
             }
         } catch (t: Throwable) {
@@ -65,5 +77,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        billingManagerRef?.disconnect()
     }
 }

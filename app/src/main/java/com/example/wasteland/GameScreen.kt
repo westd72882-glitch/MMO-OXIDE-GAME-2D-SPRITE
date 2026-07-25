@@ -23,7 +23,14 @@ import kotlinx.coroutines.delay
 @Composable
 fun GameScreen() {
     val state = remember { GameState() }
-    var tab by remember { mutableStateOf(0) } // 0 инвентарь, 1 ресурсы(крафт), 2 магазин
+    GameScreenWithState(state)
+}
+
+@Composable
+fun GameScreenWithState(state: GameState) {
+    var tab by remember { mutableStateOf(0) } // 0 инвентарь, 1 крафт, 2 база, 3 магазин, 4 бой
+
+    GameLoop(state)
 
     LaunchedEffect(state.toast) {
         if (state.toast != null) {
@@ -51,10 +58,21 @@ fun GameScreen() {
                     Text("WASTELAND", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
                     Text("SURVIVAL OUTPOST", color = TextMuted, fontSize = 10.sp, letterSpacing = 2.sp)
                 }
-                CoinBadge(coins = state.coins)
+                CoinBadge(coins = state.coins, coinsPerSecond = state.totalCoinsPerSecond() * state.incomeBoostMultiplier)
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(10.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier.weight(1f)) {
+                    HpBar(current = state.playerHp, max = state.maxPlayerHp, label = "HP", color = WarnRed)
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    HpBar(current = state.radiation, max = 100, label = "РАДИАЦИЯ", color = ResourceGreen)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
 
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
@@ -77,11 +95,15 @@ fun GameScreen() {
                 when (tab) {
                     0 -> InventoryGrid(state)
                     1 -> Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        CraftList(state)
+                        UpgradeList(state)
                     }
                     2 -> Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        BuildingList(state)
+                    }
+                    3 -> Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         ShopList(state)
                     }
+                    4 -> CombatScreen(state)
                 }
             }
         }
@@ -102,34 +124,24 @@ fun GameScreen() {
 }
 
 @Composable
-private fun CraftList(state: GameState) {
+private fun UpgradeList(state: GameState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("КРАФТ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 2.dp))
-        CRAFT_ITEMS.forEach { item ->
-            val done = state.ownedCraftItems[item.id] == true
-            val affordable = state.canCraft(item)
+        Text("КРАФТ УЛУЧШЕНИЙ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 2.dp))
+        Text(
+            "Каждый предмет даёт постоянный бонус к доходу или бою",
+            color = TextSecondary,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        UPGRADE_ITEMS.forEach { item ->
+            val done = state.ownedUpgrades[item.id] == true
+            val affordable = state.canAffordUpgrade(item)
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(PanelDark)
-                    .border(1.dp, if (done) ResourceGreen.copy(alpha = 0.35f) else BorderMuted, RoundedCornerShape(10.dp))
-                    .padding(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(PanelDarker),
-                    contentAlignment = Alignment.Center
-                ) {
-                    GameIcon(item.iconRes, 26.dp)
-                }
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(item.displayName, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    Text(item.description, color = TextSecondary, fontSize = 11.sp)
-                    Spacer(Modifier.height(4.dp))
+            ShopRow(
+                iconRes = item.iconRes,
+                title = item.displayName,
+                subtitle = item.description,
+                priceContent = {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         item.cost.forEach { (type, need) ->
                             val has = (state.resources[type] ?: 0) >= need
@@ -139,23 +151,53 @@ private fun CraftList(state: GameState) {
                             }
                         }
                     }
-                }
+                },
+                buttonLabel = if (done) "Готово" else "Собрать",
+                buttonEnabled = !done && affordable,
+                buttonActiveColor = if (done) BorderMuted else AccentRust,
+                onClick = { state.buyUpgrade(item) },
+                highlighted = done
+            )
+        }
+    }
+}
 
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (done) BorderMuted else if (affordable) AccentRust else BorderMuted)
-                        .clickable(enabled = !done && affordable) { state.craft(item) }
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    Text(
-                        text = if (done) "Готово" else "Собрать",
-                        color = if (done) ResourceGreen else if (affordable) BgDark else TextMuted,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-            }
+@Composable
+private fun BuildingList(state: GameState) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("ПОСТРОЙКИ БАЗЫ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 2.dp))
+        Text(
+            "Постройки приносят монеты автоматически, каждую секунду. Улучшайте их для роста дохода.",
+            color = TextSecondary,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        BUILDINGS.forEach { building ->
+            val level = state.buildingLevel(building.id)
+            val cost = state.buildingUpgradeCost(building)
+            val affordable = state.coins >= cost
+            val maxed = level >= building.maxLevel
+
+            ShopRow(
+                iconRes = building.iconRes,
+                title = "${building.displayName} · Ур. $level",
+                subtitle = "${building.description} · доход: ${formatCoins(building.incomeAtLevel(level))}/сек",
+                priceContent = {
+                    if (!maxed) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            GameIcon(COIN_ICON_RES, 12.dp)
+                            Text(formatCoins(cost.toDouble()), color = if (affordable) TextSecondary else WarnRed, fontSize = 11.sp)
+                        }
+                    } else {
+                        Text("MAX", color = ResourceGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                },
+                buttonLabel = if (maxed) "Макс" else if (level == 0) "Построить" else "Улучшить",
+                buttonEnabled = !maxed && affordable,
+                buttonActiveColor = AccentRust,
+                onClick = { state.upgradeBuilding(building) },
+                highlighted = false
+            )
         }
     }
 }
@@ -166,89 +208,145 @@ private fun ShopList(state: GameState) {
         Text("РЕСУРСЫ ЗА МОНЕТЫ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
         SHOP_RESOURCE_OFFERS.forEach { offer ->
             val affordable = state.coins >= offer.price
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(PanelDark)
-                    .border(1.dp, BorderMuted, RoundedCornerShape(10.dp))
-                    .padding(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(PanelDarker),
-                    contentAlignment = Alignment.Center
-                ) {
-                    GameIcon(offer.resource.iconRes, 26.dp)
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("${offer.amount} × ${offer.resource.displayName}", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            ShopRow(
+                iconRes = offer.resource.iconRes,
+                title = "${offer.amount} × ${offer.resource.displayName}",
+                subtitle = null,
+                priceContent = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         GameIcon(COIN_ICON_RES, 12.dp)
                         Text(offer.price.toString(), color = TextSecondary, fontSize = 11.sp)
                     }
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (affordable) AccentRust else BorderMuted)
-                        .clickable(enabled = affordable) { state.buyResource(offer) }
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    Text(
-                        text = if (affordable) "Купить" else "Мало монет",
-                        color = if (affordable) BgDark else TextMuted,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-            }
+                },
+                buttonLabel = if (affordable) "Купить" else "Мало монет",
+                buttonEnabled = affordable,
+                buttonActiveColor = AccentRust,
+                onClick = { state.buyResource(offer) },
+                highlighted = false
+            )
         }
 
         Spacer(Modifier.height(6.dp))
-        Text("ПРЕДМЕТЫ ЗА МОНЕТЫ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
-        SHOP_ITEMS.forEach { item ->
+        Text("ОРУЖИЕ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
+        SHOP_WEAPONS.forEach { item ->
             val affordable = state.coins >= item.price
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(PanelDark)
-                    .border(1.dp, BorderMuted, RoundedCornerShape(10.dp))
-                    .padding(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(PanelDarker),
-                    contentAlignment = Alignment.Center
-                ) {
-                    GameIcon(item.iconRes, 26.dp)
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(item.displayName, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    Text(item.description, color = TextSecondary, fontSize = 11.sp)
+            ShopRow(
+                iconRes = item.iconRes,
+                title = item.displayName,
+                subtitle = "${item.description} · урон ${item.damage}",
+                priceContent = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         GameIcon(COIN_ICON_RES, 12.dp)
                         Text(item.price.toString(), color = TextSecondary, fontSize = 11.sp)
                     }
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (affordable) AccentRust else BorderMuted)
-                        .clickable(enabled = affordable) { state.buyItem(item) }
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    Text(
-                        text = if (affordable) "Купить" else "Мало монет",
-                        color = if (affordable) BgDark else TextMuted,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-            }
+                },
+                buttonLabel = if (affordable) "Купить" else "Мало монет",
+                buttonEnabled = affordable,
+                buttonActiveColor = AccentRust,
+                onClick = { state.buyWeapon(item) },
+                highlighted = false
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Text("БРОНЯ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
+        SHOP_ARMOR.forEach { item ->
+            val affordable = state.coins >= item.price
+            ShopRow(
+                iconRes = item.iconRes,
+                title = item.displayName,
+                subtitle = "${item.description} · защита ${item.defense}",
+                priceContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        GameIcon(COIN_ICON_RES, 12.dp)
+                        Text(item.price.toString(), color = TextSecondary, fontSize = 11.sp)
+                    }
+                },
+                buttonLabel = if (affordable) "Купить" else "Мало монет",
+                buttonEnabled = affordable,
+                buttonActiveColor = AccentRust,
+                onClick = { state.buyArmor(item) },
+                highlighted = false
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Text("РАСХОДНИКИ", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
+        SHOP_CONSUMABLES.forEach { item ->
+            val affordable = state.coins >= item.price
+            ShopRow(
+                iconRes = item.iconRes,
+                title = item.displayName,
+                subtitle = item.description,
+                priceContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        GameIcon(COIN_ICON_RES, 12.dp)
+                        Text(item.price.toString(), color = TextSecondary, fontSize = 11.sp)
+                    }
+                },
+                buttonLabel = if (affordable) "Купить" else "Мало монет",
+                buttonEnabled = affordable,
+                buttonActiveColor = AccentRust,
+                onClick = { state.buyConsumable(item) },
+                highlighted = false
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+        DonationSection(state)
+    }
+}
+
+/** Универсальная строка магазина/крафта — вынесена, чтобы не дублировать разметку 4 раза. */
+@Composable
+private fun ShopRow(
+    iconRes: String,
+    title: String,
+    subtitle: String?,
+    priceContent: @Composable () -> Unit,
+    buttonLabel: String,
+    buttonEnabled: Boolean,
+    buttonActiveColor: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit,
+    highlighted: Boolean
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(PanelDark)
+            .border(1.dp, if (highlighted) ResourceGreen.copy(alpha = 0.35f) else BorderMuted, RoundedCornerShape(10.dp))
+            .padding(12.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(PanelDarker),
+            contentAlignment = Alignment.Center
+        ) {
+            GameIcon(iconRes, 26.dp)
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            subtitle?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
+            Spacer(Modifier.height(4.dp))
+            priceContent()
+        }
+
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (buttonEnabled) buttonActiveColor else BorderMuted)
+                .clickable(enabled = buttonEnabled, onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = buttonLabel,
+                color = if (buttonEnabled) BgDark else TextMuted,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp
+            )
         }
     }
 }
