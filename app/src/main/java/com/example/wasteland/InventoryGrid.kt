@@ -1,6 +1,7 @@
 package com.example.wasteland
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -49,7 +50,12 @@ fun InventoryGrid(state: GameState) {
     var draggingIndex by remember { mutableStateOf(-1) }
     var hoverIndex by remember { mutableStateOf(-1) }
     var dragMoved by remember { mutableStateOf(false) }
-    val dragOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val dragOffset = remember {
+        Animatable<Offset, androidx.compose.animation.core.AnimationVector2D>(
+            Offset.Zero,
+            Offset.VectorConverter
+        )
+    }
     val scope = rememberCoroutineScope()
 
     val slotSizePx = with(density) { slotSize.toPx() }

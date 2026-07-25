@@ -12,6 +12,7 @@ import com.android.billingclient.api.ConsumeParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
+import com.android.billingclient.api.QueryProductDetailsResult
 import com.android.billingclient.api.QueryPurchasesParams
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -123,9 +124,9 @@ class BillingManager(private val context: Context, private val state: GameState)
         }
         val params = QueryProductDetailsParams.newBuilder().setProductList(products).build()
 
-        billingClient.queryProductDetailsAsync(params) { billingResult, result ->
+        billingClient.queryProductDetailsAsync(params) { billingResult, result: QueryProductDetailsResult ->
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                result.productDetailsList.forEach { details ->
+                result.productDetailsList.forEach { details: ProductDetails ->
                     productDetailsCache[details.productId] = details
                     val price = details.oneTimePurchaseOfferDetails?.formattedPrice
                     if (price != null) {
