@@ -41,7 +41,7 @@ fun CoinBadge(coins: Double, coinsPerSecond: Double = 0.0) {
             .border(1.dp, Color(0xFF4A3F2C), RoundedCornerShape(8.dp))
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        GameIcon(COIN_ICON_RES, 20.dp)
+        GameIcon(COIN_ICON_RES, 26.dp)
         Column {
             Text(
                 text = formatCoins(coins),
@@ -117,7 +117,7 @@ fun ResourceCard(type: ResourceType, amount: Int) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            GameIcon(type.iconRes, 22.dp)
+            GameIcon(type.iconRes, 30.dp)
             Text(
                 text = amount.toString(),
                 color = TextPrimary,
@@ -166,10 +166,10 @@ fun DonationSection(state: GameState) {
                     .padding(12.dp)
             ) {
                 Box(
-                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(PanelDarker),
+                    modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(PanelDarker),
                     contentAlignment = Alignment.Center
                 ) {
-                    GameIcon(donationIconFor(product.productId), 26.dp)
+                    GameIcon(donationIconFor(product.productId), 34.dp)
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(donationLabelFor(product.productId), color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -218,20 +218,50 @@ private fun donationIconFor(productId: String): String = when (productId) {
     else -> COIN_ICON_RES
 }
 
+/**
+ * Вкладки сгруппированы по смыслу и отображаются в ДВЕ строки — так все
+ * 8 активностей помещаются без сжатия текста в нечитаемый размер, и при
+ * этом порядок явно "рассортирован": прогресс/экономика сверху,
+ * снаряжение/бой/настройки снизу.
+ */
+data class TabDef(val index: Int, val label: String)
+
+val TOP_TABS = listOf(
+    TabDef(0, "Инвентарь"),
+    TabDef(1, "Крафт"),
+    TabDef(2, "База"),
+    TabDef(6, "Кликер"),
+)
+val BOTTOM_TABS = listOf(
+    TabDef(3, "Магазин"),
+    TabDef(7, "Казино"),
+    TabDef(4, "Бой"),
+    TabDef(5, "Настройки"),
+)
+
 @Composable
 fun TabBar(selected: Int, onSelect: (Int) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, BorderMuted, RoundedCornerShape(8.dp))
-    ) {
-        TabItem("Инвентарь", selected == 0, Modifier.weight(1f)) { onSelect(0) }
-        TabItem("Крафт", selected == 1, Modifier.weight(1f)) { onSelect(1) }
-        TabItem("База", selected == 2, Modifier.weight(1f)) { onSelect(2) }
-        TabItem("Магазин", selected == 3, Modifier.weight(1f)) { onSelect(3) }
-        TabItem("Бой", selected == 4, Modifier.weight(1f)) { onSelect(4) }
-        TabItem("Настройки", selected == 5, Modifier.weight(1f)) { onSelect(5) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, BorderMuted, RoundedCornerShape(8.dp))
+        ) {
+            TOP_TABS.forEach { tab ->
+                TabItem(tab.label, selected == tab.index, Modifier.weight(1f)) { onSelect(tab.index) }
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, BorderMuted, RoundedCornerShape(8.dp))
+        ) {
+            BOTTOM_TABS.forEach { tab ->
+                TabItem(tab.label, selected == tab.index, Modifier.weight(1f)) { onSelect(tab.index) }
+            }
+        }
     }
 }
 

@@ -420,4 +420,102 @@ class GameState {
             }
         }
     }
+
+    // --- Кликер: ручной доход по тапу, прокачиваемый отдельными уровнями ---
+    var clickLevel by mutableIntStateOf(0)
+        private set
+    var totalClicks by mutableIntStateOf(0)
+        private set
+
+    /** Монет за один тап — растёт с уровнем прокачки клика. */
+    fun coinsPerClick(): Double = (1 + clickLevel * 2).toDouble()
+
+    fun clickUpgradeCost(): Int = 30 + clickLevel * clickLevel * 20
+
+    fun clickCoins() {
+        totalClicks += 1
+        addCoinsImmediate(coinsPerClick())
+    }
+
+    fun upgradeClick() {
+        val cost = clickUpgradeCost()
+        if (coins < cost) {
+            showToast("Недостаточно монет")
+            return
+        }
+        spendCoins(cost.toDouble())
+        clickLevel += 1
+        showToast("Клик прокачан: +${coinsPerClick().toInt()} монет за тап")
+    }
+
+    fun setClickStateFromSave(level: Int, clicks: Int) {
+        clickLevel = level
+        totalClicks = clicks
+    }
+
+    // --- Казино: внутриигровая валюта, без реальных денег ---
+    var casinoWins by mutableIntStateOf(0)
+        private set
+    var casinoLosses by mutableIntStateOf(0)
+        private set
+    var lastCasinoResult by mutableStateOf<CasinoResult?>(null)
+        private set
+
+    fun setCasinoStateFromSave(wins: Int, losses: Int) {
+        casinoWins = wins
+        casinoLosses = losses
+    }
+
+    /** Орёл/решка: ставка удваивается либо сгорает, шанс 50/50. */
+    fun playCoinFlip(bet: Int, guessHeads: Boolean) {
+        if (bet <= 0 || coins < bet) {
+            showToast("Недостаточно монет для ставки")
+            return
+        }
+        spendCoins(bet.toDouble())
+        val heads = kotlin.random.Random.nextBoolean()
+        val won = heads == guessHeads
+        if (won) {
+            addCoinsImmediate(bet * 2.0)
+            casinoWins += 1
+            lastCasinoResult = CasinoResult(true, "Выпало ${if (heads) "орёл" else "решка"} — вы выиграли ${bet * 2}!")
+        } else {
+            casinoLosses += 1
+            lastCasinoResult = CasinoResult(false, "Выпало ${if (heads) "орёл" else "решка"} — ставка сгорела.")
+        }
+    }
+
+    /** Слоты: 3 барабана, совпадения дают множитель ставки. */
+    fun playSlots(bet: Int) {
+        if (bet <= 0 || coins < bet) {
+            showToast("Недостаточно монет для ставки")
+            return
+        }
+        spendCoins(bet.toDouble())
+        val symbols = listOf("🍒", "🍋", "🔔", "⭐", "💎", "7️⃣")
+        val reels = List(3) { symbols.random() }
+        val multiplier = when {
+            reels.all { it == reels[0] } && reels[0] == "7️⃣" -> 20.0
+            reels.all { it == reels[0] } -> 8.0
+            reels.distinct().size == 2 -> 1.5
+            else -> 0.0
+        }
+        lastSlotsReels = reels
+        if (multiplier > 0) {
+            val payout = bet * multiplier
+            addCoinsImmediate(payout)
+            casinoWins += 1
+            lastCasinoResult = CasinoResult(true, "${reels.joinToString(" ")} — выигрыш ${payout.toInt()}!")
+        } else {
+            casinoLosses += 1
+            lastCasinoResult = CasinoResult(false, "${reels.joinToString(" ")} — без выигрыша.")
+        }
+    }
+
+    var lastSlotsReels by mutableStateOf<List<String>>(listOf("❔", "❔", "❔"))
+        private set
+
+    fun clearCasinoResult() { lastCasinoResult = null }
 }
+
+data class CasinoResult(val won: Boolean, val message: String)

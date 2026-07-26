@@ -74,6 +74,11 @@ class GameSave(context: Context) {
                 put("lowPerformanceMode", state.settings.lowPerformanceMode)
                 put("notificationsEnabled", state.settings.notificationsEnabled)
             })
+
+            put("clickLevel", state.clickLevel)
+            put("totalClicks", state.totalClicks)
+            put("casinoWins", state.casinoWins)
+            put("casinoLosses", state.casinoLosses)
         }
 
         prefs.edit()
@@ -153,6 +158,15 @@ class GameSave(context: Context) {
                 )
             )
         }
+
+        state.setClickStateFromSave(
+            level = json.optInt("clickLevel", 0),
+            clicks = json.optInt("totalClicks", 0)
+        )
+        state.setCasinoStateFromSave(
+            wins = json.optInt("casinoWins", 0),
+            losses = json.optInt("casinoLosses", 0)
+        )
 
         // --- Реальный оффлайн-доход ---
         val lastSeenMillis = prefs.getLong(KEY_LAST_SEEN_MILLIS, System.currentTimeMillis())

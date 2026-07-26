@@ -31,17 +31,24 @@ import kotlinx.coroutines.launch
  * Инвентарь с drag-and-drop, оптимизированный так, чтобы во время
  * перетаскивания НЕ пересчитывался (recompose) весь список.
  *
- * Ключевая идея: во время drag двигается только графический слой
- * (Modifier.graphicsLayer), который читает Animatable.value напрямую —
- * это триггерит re-draw, а не recomposition всей сетки. Позиция
- * ячейки под пальцем вычисляется математически по сетке (индекс -> row/col),
- * а не через onGloballyPositioned на каждой ячейке (было главным источником
- * лагов: до 24 колбэков на каждый кадр перетаскивания).
+ * ВАЖНО (исправление видимости при перетаскивании): раньше перетаскиваемая
+ * иконка рисовалась ВНУТРИ Box самой ячейки, у которой стоял
+ * Modifier.clip(RoundedCornerShape(...)). graphicsLayer{ translationX/Y }
+ * двигает контент, но clip обрезает всё, что выходит за границы СВОЕЙ
+ * ячейки — поэтому иконка "пропадала", как только заезжала на соседний
+ * слот (её обрезало по границе исходной, а не целевой, ячейки).
+ *
+ * Исправление: содержимое перетаскиваемого слота больше не рисуется внутри
+ * ячейки вообще (ячейка на время drag остаётся пустой), а вместо этого
+ * рисуется в отдельном НЕобрезаемом оверлее поверх всей сетки —
+ * Box(zIndex = высокий, без clip), позиционированном абсолютно по
+ * фактическим координатам ячейки + offset пальца. Так иконка всегда
+ * видна поверх любых других слотов, куда бы её ни тащили.
  */
 @Composable
 fun InventoryGrid(state: GameState) {
-    val slotSize = 76.dp
-    val gap = 8.dp
+    val slotSize = 84.dp
+    val gap = 10.dp
     val columns = 4
 
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
@@ -73,65 +80,101 @@ fun InventoryGrid(state: GameState) {
         Text(
             text = "Тап — использовать/экипировать · Перетащите — переставить",
             color = TextMuted,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             modifier = Modifier.padding(bottom = 8.dp)
         )
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(columns),
-            horizontalArrangement = Arrangement.spacedBy(gap),
-            verticalArrangement = Arrangement.spacedBy(gap),
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .onSizeChanged { containerSize = it }
         ) {
-            items(
-                count = state.inventory.size,
-                key = { index -> "slot_$index" }
-            ) { index ->
-                val slot = state.inventory[index]
-                val isEquipped = slot.itemId != null &&
-                    (slot.itemId == state.equippedWeaponId || slot.itemId == state.equippedArmorId)
-                InventorySlotCell(
-                    slot = slot,
-                    slotSize = slotSize,
-                    isDragSource = draggingIndex == index,
-                    isHoverTarget = hoverIndex == index && draggingIndex != -1 && draggingIndex != index,
-                    isEquipped = isEquipped,
-                    dragOffsetProvider = { dragOffset.value },
-                    onDragStart = {
-                        if (state.inventory[index].itemId != null) {
-                            draggingIndex = index
-                            hoverIndex = index
-                            dragMoved = false
-                            scope.launch { dragOffset.snapTo(Offset.Zero) }
-                        }
-                    },
-                    onDrag = { delta ->
-                        if (draggingIndex == index) {
-                            if (delta.getDistance() > 2f) dragMoved = true
-                            scope.launch { dragOffset.snapTo(dragOffset.value + delta) }
-                            val basePos = cellCenter(index, columns, slotSizePx, gapPx)
-                            hoverIndex = indexAt(basePos + dragOffset.value)
-                        }
-                    },
-                    onDragEnd = {
-                        if (draggingIndex == index) {
-                            val target = hoverIndex
-                            val moved = dragMoved
-                            if (moved && target != -1 && target != index) {
-                                state.moveInventoryItem(index, target)
-                            } else if (!moved) {
-                                // Перемещения почти не было — считаем это тапом:
-                                // используем/экипируем предмет вместо переноса.
-                                state.useItem(state.inventory[index])
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                horizontalArrangement = Arrangement.spacedBy(gap),
+                verticalArrangement = Arrangement.spacedBy(gap),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { containerSize = it }
+            ) {
+                items(
+                    count = state.inventory.size,
+                    key = { index -> "slot_$index" }
+                ) { index ->
+                    val slot = state.inventory[index]
+                    val isEquipped = slot.itemId != null &&
+                        (slot.itemId == state.equippedWeaponId || slot.itemId == state.equippedArmorId)
+                    InventorySlotCell(
+                        slot = slot,
+                        slotSize = slotSize,
+                        isDragSource = draggingIndex == index,
+                        isHoverTarget = hoverIndex == index && draggingIndex != -1 && draggingIndex != index,
+                        isEquipped = isEquipped,
+                        onDragStart = {
+                            if (state.inventory[index].itemId != null) {
+                                draggingIndex = index
+                                hoverIndex = index
+                                dragMoved = false
+                                scope.launch { dragOffset.snapTo(Offset.Zero) }
                             }
-                            draggingIndex = -1
-                            hoverIndex = -1
-                            scope.launch { dragOffset.snapTo(Offset.Zero) }
+                        },
+                        onDrag = { delta ->
+                            if (draggingIndex == index) {
+                                if (delta.getDistance() > 2f) dragMoved = true
+                                scope.launch { dragOffset.snapTo(dragOffset.value + delta) }
+                                val basePos = cellCenter(index, columns, slotSizePx, gapPx)
+                                hoverIndex = indexAt(basePos + dragOffset.value)
+                            }
+                        },
+                        onDragEnd = {
+                            if (draggingIndex == index) {
+                                val target = hoverIndex
+                                val moved = dragMoved
+                                if (moved && target != -1 && target != index) {
+                                    state.moveInventoryItem(index, target)
+                                } else if (!moved) {
+                                    state.useItem(state.inventory[index])
+                                }
+                                draggingIndex = -1
+                                hoverIndex = -1
+                                scope.launch { dragOffset.snapTo(Offset.Zero) }
+                            }
+                        }
+                    )
+                }
+            }
+
+            // Необрезаемый оверлей поверх всей сетки — здесь рисуется ТОЛЬКО
+            // перетаскиваемая сейчас иконка, поэтому она никогда не прячется
+            // за соседними ячейками.
+            if (draggingIndex != -1 && draggingIndex in state.inventory.indices) {
+                val draggedSlot = state.inventory[draggingIndex]
+                val basePos = cellCenter(draggingIndex, columns, slotSizePx, gapPx)
+                Box(
+                    modifier = Modifier
+                        .zIndex(10f)
+                        .graphicsLayer {
+                            val offset = dragOffset.value
+                            translationX = basePos.x + offset.x - slotSizePx / 2f
+                            translationY = basePos.y + offset.y - slotSizePx / 2f
+                            scaleX = 1.15f
+                            scaleY = 1.15f
+                            shadowElevation = 16f
+                        }
+                        .size(slotSize),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        GameIcon(draggedSlot.iconRes, 44.dp)
+                        if (draggedSlot.count > 1) {
+                            Text(
+                                text = draggedSlot.count.toString(),
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
                         }
                     }
-                )
+                }
             }
         }
     }
@@ -148,10 +191,9 @@ private fun cellCenter(index: Int, columns: Int, slotSizePx: Float, gapPx: Float
 }
 
 /**
- * Отдельный composable для ячейки инвентаря. Вынесен отдельно, чтобы
- * Compose мог скипать recomposition ячеек, не участвующих в drag —
- * благодаря стабильным параметрам и лямбда-провайдеру dragOffsetProvider
- * (читается только внутри graphicsLayer, а не как обычный state здесь).
+ * Отдельный composable для ячейки инвентаря. Пока предмет перетаскивается
+ * (isDragSource), ячейка НЕ рисует свою иконку — она рисуется в оверлее
+ * над всей сеткой (см. InventoryGrid), чтобы не обрезаться границами ячейки.
  */
 @Composable
 private fun InventorySlotCell(
@@ -160,7 +202,6 @@ private fun InventorySlotCell(
     isDragSource: Boolean,
     isHoverTarget: Boolean,
     isEquipped: Boolean,
-    dragOffsetProvider: () -> Offset,
     onDragStart: () -> Unit,
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit
@@ -168,13 +209,12 @@ private fun InventorySlotCell(
     Box(
         modifier = Modifier
             .size(slotSize)
-            .zIndex(if (isDragSource) 1f else 0f)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(if (isHoverTarget) PanelDark.copy(alpha = 0.6f) else PanelDarker)
             .border(
                 width = if (isHoverTarget || isEquipped) 2.dp else 1.dp,
                 color = if (isHoverTarget) AccentRust else if (isEquipped) ResourceGreen else BorderMuted,
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(10.dp)
             )
             .then(
                 if (slot.itemId != null) {
@@ -193,29 +233,15 @@ private fun InventorySlotCell(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (slot.itemId != null) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.graphicsLayer {
-                    // Читаем offset напрямую здесь — это единственное место,
-                    // которое инвалидируется на каждый кадр драга (re-draw слоя),
-                    // а НЕ recomposition всего дерева.
-                    val offset = if (isDragSource) dragOffsetProvider() else Offset.Zero
-                    translationX = offset.x
-                    translationY = offset.y
-                    scaleX = if (isDragSource) 1.12f else 1f
-                    scaleY = if (isDragSource) 1.12f else 1f
-                    alpha = if (isDragSource) 0.92f else 1f
-                    shadowElevation = if (isDragSource) 12f else 0f
-                }
-            ) {
-                GameIcon(slot.iconRes, 32.dp)
+        if (slot.itemId != null && !isDragSource) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                GameIcon(slot.iconRes, 40.dp)
                 if (slot.count > 1) {
                     Text(
                         text = slot.count.toString(),
                         color = TextPrimary,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                 }
             }

@@ -42,7 +42,7 @@ fun GameScreenWithState(
     offlineReport: OfflineReport? = null,
     onDismissOfflineReport: () -> Unit = {}
 ) {
-    var tab by remember { mutableStateOf(0) } // 0 инвентарь, 1 крафт, 2 база, 3 магазин, 4 бой, 5 настройки
+    var tab by remember { mutableStateOf(0) } // 0 инвентарь, 1 крафт, 2 база, 3 магазин, 4 бой, 5 настройки, 6 кликер, 7 казино
 
     GameLoop(state, gameSave)
 
@@ -68,6 +68,14 @@ fun GameScreenWithState(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // Приложение использует enableEdgeToEdge() (см. MainActivity), то есть
+                // контент рисуется ПОД системными панелями (время/батарея сверху,
+                // жесты/кнопки снизу). Без явного inset-padding'а верхний HUD (монеты,
+                // HP, ресурсы) перекрывался системным статус-баром. statusBarsPadding()/
+                // navigationBarsPadding() добавляют ровно столько отступа, сколько
+                // реально занимает системная панель на конкретном устройстве.
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(16.dp)
         ) {
             Row(
@@ -99,7 +107,7 @@ fun GameScreenWithState(
                 columns = GridCells.Fixed(3),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.height(72.dp)
+                modifier = Modifier.height(80.dp)
             ) {
                 items(ResourceType.entries) { type ->
                     ResourceCard(type = type, amount = state.resources[type] ?: 0)
@@ -125,6 +133,8 @@ fun GameScreenWithState(
                         ShopList(state, gameSave)
                     }
                     4 -> CombatScreen(state)
+                    6 -> ClickerScreen(state, gameSave)
+                    7 -> CasinoScreen(state, gameSave)
                     5 -> SettingsScreen(
                         state = state,
                         onSettingsChanged = { newSettings ->
@@ -144,6 +154,7 @@ fun GameScreenWithState(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .statusBarsPadding()
                     .padding(top = 8.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(PanelDarker)
@@ -394,10 +405,10 @@ private fun ShopRow(
             .padding(12.dp)
     ) {
         Box(
-            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(PanelDarker),
+            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(PanelDarker),
             contentAlignment = Alignment.Center
         ) {
-            GameIcon(iconRes, 26.dp)
+            GameIcon(iconRes, 34.dp)
         }
 
         Column(modifier = Modifier.weight(1f)) {
